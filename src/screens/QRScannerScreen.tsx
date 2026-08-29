@@ -7,8 +7,10 @@ import {
   ActivityIndicator,
   Modal,
   Alert,
+  Platform,
+  PermissionsAndroid,
 } from 'react-native';
-import {Camera, useCameraDevice, useCodeScanner} from 'react-native-vision-camera';
+import {Camera, CameraType} from 'react-native-camera-kit';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../types';
 import {parseQrPayload, getUser, getPakistanTime} from '../utils';
@@ -41,7 +43,6 @@ const QRScannerScreen: React.FC<QRScannerScreenProps> = ({navigation, route}) =>
   const cooldownActiveRef = useRef(false);
   const checkInResultRef = useRef<CheckInResult | null>(null);
   const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const device = useCameraDevice('back');
 
   useEffect(() => {
     checkInResultRef.current = checkInResult;
@@ -79,15 +80,28 @@ const QRScannerScreen: React.FC<QRScannerScreenProps> = ({navigation, route}) =>
 
   const checkCameraPermission = async () => {
     try {
-      const cameraPermission = await Camera.requestCameraPermission();
-      setHasPermission(cameraPermission === 'granted');
-      
-      if (cameraPermission !== 'granted') {
-        Alert.alert(
-          'Camera Permission',
-          'Camera permission is required to scan QR codes. Please enable it in settings.',
-          [{text: 'OK', onPress: () => navigation.goBack()}]
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: 'Camera Permission',
+            message: 'Camera permission is required to scan QR codes.',
+            buttonNeutral: 'Ask Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
         );
+        setHasPermission(granted === PermissionsAndroid.RESULTS.GRANTED);
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert(
+            'Camera Permission',
+            'Camera permission is required to scan QR codes. Please enable it in settings.',
+            [{text: 'OK', onPress: () => navigation.goBack()}]
+          );
+        }
+      } else {
+        // iOS — camera-kit handles permission internally, but we still check
+        setHasPermission(true);
       }
     } catch (error) {
       console.error('Permission error:', error);
@@ -129,23 +143,18 @@ const QRScannerScreen: React.FC<QRScannerScreenProps> = ({navigation, route}) =>
     }, QR_SCAN_COOLDOWN_MS);
   };
 
-  const codeScanner = useCodeScanner({
-    codeTypes: ['qr'],
-    onCodeScanned: (codes) => {
-      if (!canScanRef.current || scannedRef.current) {
-        return;
-      }
+  const handleReadCode = (event: any) => {
+    if (!canScanRef.current || scannedRef.current) {
+      return;
+    }
 
-      if (codes.length > 0 && codes[0].value) {
-        lockScanner();
-        setProcessingQR(true);
-        processQRCode(codes[0].value);
-      }
-    },
-  });
-
-  const cameraScanningEnabled =
-    isActive && !cooldownActive && !processingQR && checkInResult === null;
+    const qrData = event?.nativeEvent?.codeStringValue;
+    if (qrData) {
+      lockScanner();
+      setProcessingQR(true);
+      processQRCode(qrData);
+    }
+  };
 
   const processQRCode = async (qrData: string) => {
     try {
@@ -239,25 +248,15 @@ const QRScannerScreen: React.FC<QRScannerScreenProps> = ({navigation, route}) =>
     );
   }
 
-  if (!device) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color="#3498db" />
-          <Text style={styles.loadingText}>Loading camera...</Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <Camera
         style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={isActive}
-        torch={torchOn ? 'on' : 'off'}
-        codeScanner={cameraScanningEnabled ? codeScanner : undefined}
+        cameraType={CameraType.Back}
+        torchMode={torchOn ? 'on' : 'off'}
+        scanBarcode
+        onReadCode={handleReadCode}
+        focusMode="on"
       />
 
       <View style={styles.overlay}>
@@ -272,17 +271,14 @@ const QRScannerScreen: React.FC<QRScannerScreenProps> = ({navigation, route}) =>
         </View>
 
         <View style={styles.scanAreaContainer}>
-          <View style={styles.scanArea}>
-            <View style={[styles.corner, styles.topLeft]} />
-            <View style={[styles.corner, styles.topRight]} />
-            <View style={[styles.corner, styles.bottomLeft]} />
-            <View style={[styles.corner, styles.bottomRight]} />
-          </View>
+          <Text style={styles.scanHintText}>
+            Point the camera at the QR code and hold steady
+          </Text>
         </View>
 
         <View style={styles.footer}>
           <Text style={styles.instructionText}>
-            Position the QR code within the frame
+            Increase screen brightness if scanning from a phone or laptop
           </Text>
 
           <TouchableOpacity
@@ -415,46 +411,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 32,
   },
-  scanArea: {
-    width: 280,
-    height: 280,
-    position: 'relative',
-  },
-  corner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderColor: '#00ff00',
-    borderWidth: 4,
-  },
-  topLeft: {
-    top: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderBottomWidth: 0,
-    borderTopLeftRadius: 8,
-  },
-  topRight: {
-    top: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderBottomWidth: 0,
-    borderTopRightRadius: 8,
-  },
-  bottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderTopWidth: 0,
-    borderBottomLeftRadius: 8,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderTopWidth: 0,
-    borderBottomRightRadius: 8,
+  scanHintText: {
+    fontSize: 16,
+    color: '#fff',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   footer: {
     paddingVertical: 40,

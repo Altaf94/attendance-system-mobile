@@ -45,7 +45,14 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
         {loading ? (
           <ActivityIndicator color={COLORS.textPrimary} />
         ) : (
-          <Text style={styles.secondaryText}>{title}</Text>
+          <View style={styles.row}>
+            {icon ? (
+              <Icon name={icon} size={18} color={COLORS.textPrimary} family={iconFamily} />
+            ) : null}
+            <Text style={styles.secondaryText} numberOfLines={1}>
+              {title}
+            </Text>
+          </View>
         )}
       </TouchableOpacity>
     );
@@ -73,10 +80,10 @@ export const PrimaryButton: React.FC<PrimaryButtonProps> = ({
           <ActivityIndicator color={COLORS.white} />
         ) : (
           <View style={styles.row}>
-            <Text style={styles.text}>{title}</Text>
             {icon ? (
-              <Icon name={icon} size={20} color={COLORS.white} family={iconFamily} />
+              <Icon name={icon} size={18} color={COLORS.white} family={iconFamily} />
             ) : null}
+            <Text style={styles.text} numberOfLines={1}>{title}</Text>
           </View>
         )}
       </LinearGradient>
@@ -96,19 +103,23 @@ const styles = StyleSheet.create({
   },
   gradient: {
     paddingVertical: 16,
+    paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
+    maxWidth: '100%',
   },
   text: {
     color: COLORS.white,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
+    flexShrink: 1,
   },
   secondary: {
     paddingVertical: 16,
@@ -124,6 +135,7 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontSize: 16,
     fontWeight: '600',
+    flexShrink: 1,
   },
   disabled: {
     opacity: 0.65,

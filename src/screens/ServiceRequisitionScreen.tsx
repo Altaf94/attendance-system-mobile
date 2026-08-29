@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -11,15 +12,24 @@ import {
   View,
 } from 'react-native';
 import { PrimaryButton, ScreenHeader, ScreenLayout } from '../components';
-import { COLORS } from '../constants';
-import { fetchServiceRequisition, saveServiceRequisition } from '../services/api';
-import { screenStyles } from '../theme/screenStyles';
-import { RootStackParamList, ServiceRequisitionInput, ServiceRequisitionStatus } from '../types';
+import {
+  fetchServiceRequisition,
+  saveServiceRequisition,
+  updateServiceRequisition,
+} from '../services/api';
+import {
+  RootStackParamList,
+  ServiceRequisition,
+  ServiceRequisitionInput,
+  ServiceRequisitionStatus,
+} from '../types';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, 'ServiceRequisition'>;
+type ScreenRoute = RouteProp<RootStackParamList, 'ServiceRequisition'>;
 
 interface Props {
   navigation: Navigation;
+  route: ScreenRoute;
 }
 
 type Fields = {
@@ -132,91 +142,200 @@ const initialFields: Fields = {
   studyCircle: '',
 };
 
-const emptyServiceState = () =>
+const emptyServiceState = (): Record<string, string> =>
   Object.fromEntries(serviceGroups.flatMap(group => group.items.map(item => [`${group.title}:${item}`, ''])));
+
+const coerceRecord = (value: unknown): Record<string, string | number> | null => {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, string | number>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, string | number>;
+  }
+  return null;
+};
+
+const normalizeServiceVolunteers = (raw: unknown): Record<string, string> => {
+  const normalized = emptyServiceState();
+  const record = coerceRecord(raw);
+  if (!record) return normalized;
+
+  Object.entries(record).forEach(([key, value]) => {
+    normalized[key] = value == null ? '' : String(value);
+  });
+  return normalized;
+};
+
+const normalizeStringList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item));
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map(item => String(item)) : [];
+    } catch {
+      return value.trim() ? [value] : [];
+    }
+  }
+  return [];
+};
 
 const toggleValue = (value: string, selected: string[]) =>
   selected.includes(value) ? selected.filter(item => item !== value) : [...selected, value];
 
 const nullable = (value: string) => value.trim() || null;
 
-const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
+const applyRequisitionData = (
+  data: ServiceRequisition,
+  setters: {
+    setRequisitionId: (id: string) => void;
+    setCurrentStatus: (status: ServiceRequisitionStatus) => void;
+    setFields: React.Dispatch<React.SetStateAction<Fields>>;
+    setVenues: (venues: string[]) => void;
+    setRequirements: (requirements: string[]) => void;
+    setServicesRequired: (value: boolean) => void;
+    setServiceVolunteers: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+    setPrfAttachment: (value: string | null) => void;
+  }
+) => {
+  setters.setRequisitionId(data.id);
+  setters.setCurrentStatus(data.status);
+  setters.setFields({
+    requestDate: data.requestDate || '',
+    programTitle: data.programTitle || '',
+    organisingInstitution: data.organisingInstitution || '',
+    collaboratingInstitutes: data.collaboratingInstitutes || '',
+    invitedGuest: data.invitedGuest || '',
+    eventDate: data.eventDate || '',
+    startTime: data.startTime || '',
+    endTime: data.endTime || '',
+    duration: data.duration || '',
+    targetAudience: data.targetAudience || '',
+    ageGroup: data.ageGroup || '',
+    expectedGathering: data.expectedGathering != null ? String(data.expectedGathering) : '',
+    objectives: data.objectives || '',
+    otherVenue: data.otherVenue || '',
+    chairsRequired: data.chairsRequired != null ? String(data.chairsRequired) : '',
+    otherRequirements: data.otherRequirements || '',
+    tkService: data.tkService || '',
+    requestorName: data.requestorName || '',
+    contactDetails: data.contactDetails || '',
+    mukhiSaheb: data.mukhiSaheb || '',
+    kamadiaSaheb: data.kamadiaSaheb || '',
+    directorGent: data.directorGent || '',
+    directorLadies: data.directorLadies || '',
+    rec: data.rec || '',
+    studyCircle: data.studyCircle || '',
+  });
+  setters.setVenues(normalizeStringList(data.venues));
+  setters.setRequirements(normalizeStringList(data.requirements));
+  setters.setServicesRequired(data.servicesRequired !== false);
+  setters.setServiceVolunteers(normalizeServiceVolunteers(data.serviceVolunteers));
+  setters.setPrfAttachment(data.prfAttachment || null);
+};
+
+const statusLabel: Record<ServiceRequisitionStatus, string> = {
+  DRAFT: 'Draft',
+  SUBMITTED: 'Submitted',
+  APPROVED: 'Approved',
+};
+
+const ServiceRequisitionScreen: React.FC<Props> = ({ navigation, route }) => {
   const [fields, setFields] = useState<Fields>(initialFields);
   const [venues, setVenues] = useState<string[]>([]);
   const [requirements, setRequirements] = useState<string[]>([]);
   const [servicesRequired, setServicesRequired] = useState(true);
-  const [serviceVolunteers, setServiceVolunteers] = useState<Record<string, string>>(emptyServiceState);
+  const [serviceVolunteers, setServiceVolunteers] = useState<Record<string, string>>(() => emptyServiceState());
   const [requisitionId, setRequisitionId] = useState<string | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<ServiceRequisitionStatus | null>(null);
   const [prfAttachment, setPrfAttachment] = useState<string | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(true);
   const [saving, setSaving] = useState<ServiceRequisitionStatus | null>(null);
 
+  const isEditing = !!requisitionId && currentStatus !== 'DRAFT';
+  const isReadOnly = currentStatus === 'APPROVED';
+  const safeVenues = Array.isArray(venues) ? venues : [];
+  const safeRequirements = Array.isArray(requirements) ? requirements : [];
+  const safeServiceVolunteers =
+    serviceVolunteers && typeof serviceVolunteers === 'object' ? serviceVolunteers : emptyServiceState();
+
   const selectedServiceCount = useMemo(
-    () => Object.values(serviceVolunteers).filter(value => value.trim()).length,
-    [serviceVolunteers]
+    () => Object.values(safeServiceVolunteers).filter(value => String(value || '').trim()).length,
+    [safeServiceVolunteers]
   );
 
   useEffect(() => {
     let cancelled = false;
 
-    const loadDraft = async () => {
+    const loadRequisition = async () => {
+      const editId = route.params?.id;
+      const passedRequisition = route.params?.requisition;
+
       try {
-        const savedId = await AsyncStorage.getItem(DRAFT_KEY);
+        if (passedRequisition && (!editId || passedRequisition.id === editId)) {
+          applyRequisitionData(passedRequisition, {
+            setRequisitionId,
+            setCurrentStatus,
+            setFields,
+            setVenues,
+            setRequirements,
+            setServicesRequired,
+            setServiceVolunteers,
+            setPrfAttachment,
+          });
+          return;
+        }
+
+        const savedId = editId || (await AsyncStorage.getItem(DRAFT_KEY));
         if (!savedId) return;
+
         const data = await fetchServiceRequisition(savedId);
         if (cancelled) return;
 
-        setRequisitionId(data.id);
-        setFields({
-          requestDate: data.requestDate || '',
-          programTitle: data.programTitle || '',
-          organisingInstitution: data.organisingInstitution || '',
-          collaboratingInstitutes: data.collaboratingInstitutes || '',
-          invitedGuest: data.invitedGuest || '',
-          eventDate: data.eventDate || '',
-          startTime: data.startTime || '',
-          endTime: data.endTime || '',
-          duration: data.duration || '',
-          targetAudience: data.targetAudience || '',
-          ageGroup: data.ageGroup || '',
-          expectedGathering: data.expectedGathering || '',
-          objectives: data.objectives || '',
-          otherVenue: data.otherVenue || '',
-          chairsRequired: data.chairsRequired ? String(data.chairsRequired) : '',
-          otherRequirements: data.otherRequirements || '',
-          tkService: data.tkService || '',
-          requestorName: data.requestorName || '',
-          contactDetails: data.contactDetails || '',
-          mukhiSaheb: data.mukhiSaheb || '',
-          kamadiaSaheb: data.kamadiaSaheb || '',
-          directorGent: data.directorGent || '',
-          directorLadies: data.directorLadies || '',
-          rec: data.rec || '',
-          studyCircle: data.studyCircle || '',
+        applyRequisitionData(data, {
+          setRequisitionId,
+          setCurrentStatus,
+          setFields,
+          setVenues,
+          setRequirements,
+          setServicesRequired,
+          setServiceVolunteers,
+          setPrfAttachment,
         });
-        setVenues(Array.isArray(data.venues) ? data.venues : []);
-        setRequirements(Array.isArray(data.requirements) ? data.requirements : []);
-        setServicesRequired(data.servicesRequired !== false);
-        setServiceVolunteers({ ...emptyServiceState(), ...(data.serviceVolunteers || {}) });
-        setPrfAttachment(data.prfAttachment || null);
       } catch {
-        Alert.alert('Draft not loaded', 'Failed to load saved service requisition draft.');
+        Alert.alert(
+          'Load failed',
+          editId
+            ? 'Failed to load service requisition for editing.'
+            : 'Failed to load saved service requisition draft.'
+        );
       } finally {
         if (!cancelled) setLoadingDraft(false);
       }
     };
 
-    loadDraft();
+    loadRequisition();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [route.params?.id, route.params?.requisition]);
 
   const updateField = (name: keyof Fields, value: string) => {
     setFields(prev => ({ ...prev, [name]: value }));
   };
 
   const save = async (status: ServiceRequisitionStatus) => {
+    if (isReadOnly) return;
+
     if (!fields.programTitle.trim()) {
       Alert.alert('Program/Event Title', 'Please enter the program/event title.');
       return;
@@ -225,7 +344,6 @@ const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
     setSaving(status);
     try {
       const payload: ServiceRequisitionInput = {
-        id: requisitionId,
         ...fields,
         requestDate: nullable(fields.requestDate),
         programTitle: fields.programTitle.trim(),
@@ -234,38 +352,83 @@ const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
         invitedGuest: nullable(fields.invitedGuest),
         eventDate: nullable(fields.eventDate),
         chairsRequired: fields.chairsRequired,
-        venues,
-        requirements,
+        venues: safeVenues,
+        requirements: safeRequirements,
         servicesRequired,
-        serviceVolunteers,
+        serviceVolunteers: safeServiceVolunteers,
         status,
       };
-      const data = await saveServiceRequisition(payload);
+
+      const shouldPost =
+        !requisitionId || (currentStatus === 'DRAFT' && status === 'SUBMITTED');
+
+      const data = shouldPost
+        ? await saveServiceRequisition(
+            requisitionId ? { ...payload, id: requisitionId } : payload
+          )
+        : await updateServiceRequisition(requisitionId!, payload);
+
       setRequisitionId(data.id);
+      setCurrentStatus(data.status);
       await AsyncStorage.setItem(DRAFT_KEY, data.id);
 
-      const warnings = [
-        data.emailSkipped ? 'Email was skipped because SMTP is not configured.' : '',
-        data.emailError || '',
-      ].filter(Boolean);
+      const warnings = shouldPost
+        ? [
+            'emailSkipped' in data && data.emailSkipped
+              ? 'Email was skipped because SMTP is not configured.'
+              : '',
+            'emailError' in data ? data.emailError || '' : '',
+          ].filter(Boolean)
+        : [];
+
+      const successTitle = isEditing
+        ? 'Service requisition updated'
+        : status === 'SUBMITTED'
+          ? 'Service requisition submitted'
+          : 'Draft saved';
+
+      const successMessage = warnings.length
+        ? warnings.join('\n')
+        : 'Your service requisition has been saved.';
+
+      const didUpdate = !!requisitionId && !shouldPost;
 
       Alert.alert(
-        status === 'SUBMITTED' ? 'Service requisition submitted' : 'Draft saved',
-        warnings.length ? warnings.join('\n') : 'Your service requisition has been saved.'
+        successTitle,
+        successMessage,
+        didUpdate ? [{ text: 'OK', onPress: () => navigation.goBack() }] : undefined
       );
     } catch (error) {
-      Alert.alert('Save failed', error instanceof Error ? error.message : 'Failed to save service requisition.');
+      Alert.alert(
+        isEditing ? 'Update failed' : 'Save failed',
+        error instanceof Error ? error.message : 'Failed to save service requisition.'
+      );
     } finally {
       setSaving(null);
     }
   };
 
+  const handleBack = () => {
+    if (saving) return;
+    navigation.goBack();
+  };
+
   if (loadingDraft) {
-    return <ScreenLayout loading loadingText="Loading draft..." />;
+    return <ScreenLayout loading loadingText="Loading form..." />;
   }
 
   return (
-    <ScreenLayout keyboard contentContainerStyle={styles.scrollContent}>
+    <ScreenLayout contentContainerStyle={styles.scrollContent}>
+      <ScreenHeader
+        title={isEditing ? 'Edit Service Requisition' : 'Service Requisition'}
+        subtitle={
+          currentStatus
+            ? `Status: ${statusLabel[currentStatus]}${isReadOnly ? ' (read only)' : ''}`
+            : 'Fill in the form below'
+        }
+        onBack={handleBack}
+      />
+
       <View style={styles.a4Page}>
         {/* Header */}
         <View style={styles.headerSection}>
@@ -330,8 +493,8 @@ const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
               <Checkbox
                 key={opt}
                 label={opt}
-                checked={venues.includes(opt)}
-                onToggle={() => setVenues(toggleValue(opt, venues))}
+                checked={safeVenues.includes(opt)}
+                onToggle={() => setVenues(toggleValue(opt, safeVenues))}
               />
             ))}
           </View>
@@ -347,8 +510,8 @@ const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
               <Checkbox
                 key={opt}
                 label={opt}
-                checked={requirements.includes(opt)}
-                onToggle={() => setRequirements(toggleValue(opt, requirements))}
+                checked={safeRequirements.includes(opt)}
+                onToggle={() => setRequirements(toggleValue(opt, safeRequirements))}
               />
             ))}
           </View>
@@ -384,15 +547,25 @@ const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
                   <View key={key} style={styles.serviceRow}>
                     <Checkbox
                       label={item}
-                      checked={!!(serviceVolunteers[key] || '').trim()}
-                      onToggle={() => setServiceVolunteers(prev => ({ ...prev, [key]: prev[key] ? '' : '1' }))}
+                      checked={!!String(safeServiceVolunteers[key] || '').trim()}
+                      onToggle={() =>
+                        setServiceVolunteers(prev => {
+                          const current = prev && typeof prev === 'object' ? prev : emptyServiceState();
+                          return { ...current, [key]: current[key] ? '' : '1' };
+                        })
+                      }
                     />
                     <TextInput
                       style={styles.serviceInput}
                       keyboardType="number-pad"
                       placeholderTextColor="#999"
-                      value={serviceVolunteers[key] || ''}
-                      onChangeText={value => setServiceVolunteers(prev => ({ ...prev, [key]: value }))}
+                      value={String(safeServiceVolunteers[key] || '')}
+                      onChangeText={value =>
+                        setServiceVolunteers(prev => {
+                          const current = prev && typeof prev === 'object' ? prev : emptyServiceState();
+                          return { ...current, [key]: value };
+                        })
+                      }
                     />
                   </View>
                 );
@@ -445,10 +618,25 @@ const ServiceRequisitionScreen: React.FC<Props> = ({ navigation }) => {
         </View>
 
         {/* Actions */}
+        {!isReadOnly ? (
         <View style={styles.actions}>
-          <PrimaryButton title="Save Draft" variant="secondary" loading={saving === 'DRAFT'} disabled={!!saving} onPress={() => save('DRAFT')} />
-          <PrimaryButton title="Submit Request" loading={saving === 'SUBMITTED'} disabled={!!saving} onPress={() => save('SUBMITTED')} />
+          {!isEditing ? (
+            <PrimaryButton
+              title="Save Draft"
+              variant="secondary"
+              loading={saving === 'DRAFT'}
+              disabled={!!saving}
+              onPress={() => save('DRAFT')}
+            />
+          ) : null}
+          <PrimaryButton
+            title={isEditing ? 'Update Request' : 'Submit Request'}
+            loading={saving === 'SUBMITTED' || saving === 'APPROVED'}
+            disabled={!!saving}
+            onPress={() => save(isEditing ? (currentStatus ?? 'SUBMITTED') : 'SUBMITTED')}
+          />
         </View>
+        ) : null}
       </View>
     </ScreenLayout>
   );
@@ -477,7 +665,7 @@ const DocField: React.FC<{
       placeholderTextColor="#999"
       keyboardType={keyboardType}
       multiline={multiline}
-      value={value}
+      value={String(value ?? '')}
       onChangeText={onChange}
     />
   </View>
@@ -492,12 +680,13 @@ const Checkbox: React.FC<{ label: string; checked: boolean; onToggle: () => void
 
 const styles = StyleSheet.create({
   scrollContent: {
-    alignItems: 'center',
-    paddingBottom: 32,
-    paddingHorizontal: 4,
+    width: '100%',
+    paddingBottom: 48,
+    paddingHorizontal: 12,
   },
   a4Page: {
     width: '100%',
+    alignSelf: 'stretch',
     backgroundColor: '#fff',
     borderWidth: 1.5,
     borderColor: '#000',

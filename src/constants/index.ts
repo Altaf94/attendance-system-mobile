@@ -13,7 +13,7 @@ export const SERVICE_OPTIONS: Record<string, string[]> = {
     "Facilitation Services",
     "Flower Decoration Services",
     "Jura/Tabaruk Services",
-    "Nandi Services",
+    "Naandi Services",
     "Nikkah Services",
     "Paat Services",
     "Other",
@@ -50,7 +50,7 @@ export const SERVICE_OPTIONS: Record<string, string[]> = {
 export const DAY_TYPE_OPTIONS = [
   { value: "WORKING_DAYS", label: "Working Days", color: "#3498db", bgColor: "#e5f0ff" },
   { value: "FESTIVAL", label: "Festival", color: "#e67e22", bgColor: "#fff5eb" },
-  { value: "GENERAL_EVENT", label: "General", color: "#27ae60", bgColor: "#e9f8ef" },
+  { value: "GENERAL_EVENT", label: "General Event", color: "#27ae60", bgColor: "#e9f8ef" },
 ];
 
 export const SPECIAL_USER_EMAILS = ["noorabaddefault@gmail.com"];

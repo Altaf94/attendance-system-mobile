@@ -8,8 +8,9 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types';
-import { COLORS } from '../constants';
+import { COLORS, DAY_TYPE_OPTIONS } from '../constants';
 import { createEvent } from '../services/api';
+import { formatLocalDateKey } from '../utils';
 import {
   DateTimePicker,
   Icon,
@@ -28,26 +29,16 @@ interface Props {
 const AddEventScreen: React.FC<Props> = ({ navigation }) => {
   const [passcode, setPasscode] = useState('');
   const [isPasscodeVerified, setIsPasscodeVerified] = useState(false);
+  const [category, setCategory] = useState('');
   const [title, setTitle] = useState('');
-  const [eventDate, setEventDate] = useState<Date | null>(null);
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showDateRange, setShowDateRange] = useState(false);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passcodeError, setPasscodeError] = useState<string | null>(null);
-
-  const formatDateTime = (date: Date) => {
-    const dateStr = date.toLocaleDateString('en-GB', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-    });
-    const timeStr = date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true,
-    });
-    return `${dateStr} at ${timeStr}`;
-  };
 
   const handlePasscodeSubmit = () => {
     setPasscodeError(null);
@@ -61,14 +52,30 @@ const AddEventScreen: React.FC<Props> = ({ navigation }) => {
 
   const handleSubmit = async () => {
     setError(null);
+
+    if (!category) {
+      setError('Please select an event category');
+      return;
+    }
+
     if (!title.trim()) {
       setError('Please enter an occasion name');
       return;
     }
 
+    if (startDate && endDate && startDate > endDate) {
+      setError('End date must be on or after start date');
+      return;
+    }
+
     setLoading(true);
     try {
-      await createEvent(title.trim());
+      await createEvent({
+        title: title.trim(),
+        category,
+        ...(startDate ? { fromDate: startDate } : {}),
+        ...(endDate ? { toDate: endDate } : {}),
+      });
       Alert.alert('Success', 'Occasion added successfully', [
         { text: 'OK', onPress: () => navigation.navigate('Dashboard') },
       ]);
@@ -126,6 +133,29 @@ const AddEventScreen: React.FC<Props> = ({ navigation }) => {
           Create a new occasion to use when checking in volunteers.
         </Text>
 
+        <Text style={screenStyles.label}>Event Category</Text>
+        <View style={[screenStyles.optionsContainer, styles.categoryOptions]}>
+          {DAY_TYPE_OPTIONS.map(opt => (
+            <TouchableOpacity
+              key={opt.value}
+              style={[
+                screenStyles.optionButton,
+                category === opt.value && screenStyles.optionButtonSelected,
+              ]}
+              onPress={() => setCategory(opt.value)}
+            >
+              <Text
+                style={[
+                  screenStyles.optionButtonText,
+                  category === opt.value && screenStyles.optionButtonTextSelected,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <FormField
           label="Occasion title"
           icon="calendar-outline"
@@ -134,19 +164,54 @@ const AddEventScreen: React.FC<Props> = ({ navigation }) => {
           onChangeText={setTitle}
         />
 
-        <Text style={screenStyles.label}>Date & time (optional)</Text>
-        <TouchableOpacity style={styles.dateBtn} onPress={() => setShowDatePicker(true)} activeOpacity={0.8}>
-          <Icon name="time-outline" size={20} color={COLORS.gray} family="ionicons" />
-          <Text style={eventDate ? styles.dateText : styles.datePlaceholder}>
-            {eventDate ? formatDateTime(eventDate) : 'Select date & time'}
-          </Text>
+        <TouchableOpacity
+          style={styles.dateRangeToggle}
+          onPress={() => setShowDateRange(prev => !prev)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.dateRangeToggleIcon}>{showDateRange ? '▼' : '▶'}</Text>
+          <Text style={styles.dateRangeToggleText}>Add Date Range (Optional)</Text>
         </TouchableOpacity>
 
+        {showDateRange ? (
+          <View style={styles.dateRangeSection}>
+            <View style={styles.dateRangeRow}>
+              <TouchableOpacity
+                style={[styles.dateBtn, styles.dateBtnHalf]}
+                onPress={() => setShowStartDatePicker(true)}
+                activeOpacity={0.8}
+              >
+                <Icon name="calendar-outline" size={18} color={COLORS.gray} family="ionicons" />
+                <Text style={startDate ? styles.dateText : styles.datePlaceholder}>
+                  {startDate || 'Start Date'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.dateBtn, styles.dateBtnHalf]}
+                onPress={() => setShowEndDatePicker(true)}
+                activeOpacity={0.8}
+              >
+                <Icon name="calendar-outline" size={18} color={COLORS.gray} family="ionicons" />
+                <Text style={endDate ? styles.dateText : styles.datePlaceholder}>
+                  {endDate || 'End Date'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
         <DateTimePicker
-          visible={showDatePicker}
-          onClose={() => setShowDatePicker(false)}
-          onSelectDateTime={setEventDate}
-          initialDate={eventDate || undefined}
+          visible={showStartDatePicker}
+          onClose={() => setShowStartDatePicker(false)}
+          onSelectDateTime={(date) => setStartDate(formatLocalDateKey(date))}
+          dateOnly
+        />
+        <DateTimePicker
+          visible={showEndDatePicker}
+          onClose={() => setShowEndDatePicker(false)}
+          onSelectDateTime={(date) => setEndDate(formatLocalDateKey(date))}
+          dateOnly
         />
 
         {error ? (
@@ -178,26 +243,55 @@ const styles = StyleSheet.create({
     maxWidth: 500,
     alignSelf: 'center',
   },
+  categoryOptions: {
+    marginBottom: 16,
+  },
+  dateRangeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingVertical: 4,
+  },
+  dateRangeToggleIcon: {
+    fontSize: 12,
+    color: COLORS.textPrimary,
+    width: 14,
+  },
+  dateRangeToggleText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  dateRangeSection: {
+    marginBottom: 16,
+  },
+  dateRangeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   dateBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     backgroundColor: '#f5f8fa',
     borderRadius: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 14,
-    marginBottom: 16,
     borderWidth: 1.5,
     borderColor: 'rgba(11, 90, 121, 0.1)',
   },
+  dateBtnHalf: {
+    flex: 1,
+  },
   dateText: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: COLORS.textPrimary,
   },
   datePlaceholder: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     color: COLORS.gray,
   },
   buttonRow: {

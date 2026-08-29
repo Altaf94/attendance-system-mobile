@@ -164,7 +164,7 @@ const GenerateQRScreen: React.FC<Props> = ({ navigation }) => {
         onRequestClose={() => setShowQRModal(false)}
       >
         <View style={screenStyles.modalOverlay}>
-          <View style={[styles.modalContent, screenStyles.modalCard, { width: '100%', maxWidth: 400 }]}>
+          <View style={[styles.modalContent, screenStyles.modalCard, styles.modalCardOverride]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>QR Code Generated</Text>
               <TouchableOpacity
@@ -175,9 +175,12 @@ const GenerateQRScreen: React.FC<Props> = ({ navigation }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={styles.modalScrollContent}>
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalScrollContent}
+            >
               <View style={styles.qrSection}>
-                {qrValue && <QRCodeDisplay value={qrValue} size={150} />}
+                {qrValue && <QRCodeDisplay value={qrValue} size={220} />}
               </View>
 
               <View style={styles.volunteerInfo}>
@@ -384,12 +387,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
+  modalCardOverride: {
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'stretch',
+    alignSelf: 'center',
+    padding: 0,
+  },
   modalContent: {
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 20,
     maxHeight: '90%',
+  },
+  modalScroll: {
+    alignSelf: 'stretch',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -416,7 +429,9 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   qrSection: {
+    width: '100%',
     alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 24,
   },
   volunteerInfo: {
@@ -487,7 +502,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   doneButton: {
-    // flex: 1,
+    flex: 1,
     backgroundColor: COLORS.success,
     padding: 14,
     borderRadius: 8,

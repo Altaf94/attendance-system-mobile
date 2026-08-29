@@ -24,7 +24,7 @@ interface Props {
 const CATEGORY_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   WORKING_DAYS: { label: 'Working Days', color: '#3498db', bg: '#e5f0ff' },
   FESTIVAL: { label: 'Festival', color: '#e67e22', bg: '#fff5eb' },
-  GENERAL_EVENT: { label: 'General', color: '#27ae60', bg: '#e9f8ef' },
+  GENERAL_EVENT: { label: 'General Event', color: '#27ae60', bg: '#e9f8ef' },
 };
 
 const ManageEventsScreen: React.FC<Props> = ({ navigation }) => {

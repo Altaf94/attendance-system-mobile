@@ -8,9 +8,11 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
+import { Camera, CameraType } from 'react-native-camera-kit';
 import { RootStackParamList } from '../types';
 import { COLORS } from '../constants';
 import { QR_SCAN_COOLDOWN_MS } from '../constants/scanCooldown';
@@ -61,7 +63,6 @@ const BackdatedAttendanceScreen: React.FC<Props> = ({ navigation }) => {
   const cooldownActiveRef = useRef(false);
   const showScannerRef = useRef(false);
   const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const device = useCameraDevice('back');
 
   useEffect(() => {
     showScannerRef.current = showScanner;
@@ -112,9 +113,24 @@ const BackdatedAttendanceScreen: React.FC<Props> = ({ navigation }) => {
 
   const checkCameraPermission = async () => {
     try {
-      const cameraPermission = await Camera.requestCameraPermission();
-      setHasPermission(cameraPermission === 'granted');
-      return cameraPermission === 'granted';
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: 'Camera Permission',
+            message: 'Camera permission is required to scan QR codes.',
+            buttonNeutral: 'Ask Later',
+            buttonNegative: 'Cancel',
+            buttonPositive: 'OK',
+          }
+        );
+        const permissionGranted = granted === PermissionsAndroid.RESULTS.GRANTED;
+        setHasPermission(permissionGranted);
+        return permissionGranted;
+      }
+
+      setHasPermission(true);
+      return true;
     } catch (error) {
       console.error('Permission error:', error);
       return false;
@@ -181,23 +197,18 @@ const BackdatedAttendanceScreen: React.FC<Props> = ({ navigation }) => {
     }, QR_SCAN_COOLDOWN_MS);
   };
 
-  const codeScanner = useCodeScanner({
-    codeTypes: ['qr'],
-    onCodeScanned: (codes) => {
-      if (!canScanRef.current || scannedRef.current) {
-        return;
-      }
+  const handleReadCode = (event: { nativeEvent?: { codeStringValue?: string } }) => {
+    if (!canScanRef.current || scannedRef.current) {
+      return;
+    }
 
-      if (codes.length > 0 && codes[0].value) {
-        lockScanner();
-        setProcessingQR(true);
-        processQRCode(codes[0].value);
-      }
-    },
-  });
-
-  const cameraScanningEnabled =
-    showScanner && isActive && !cooldownActive && !processingQR;
+    const qrData = event?.nativeEvent?.codeStringValue;
+    if (qrData) {
+      lockScanner();
+      setProcessingQR(true);
+      processQRCode(qrData);
+    }
+  };
 
   const buildActionTimestamps = (date: Date) => {
     const year = date.getFullYear();
@@ -444,13 +455,14 @@ const BackdatedAttendanceScreen: React.FC<Props> = ({ navigation }) => {
         onRequestClose={closeScanner}
       >
         <View style={styles.scannerContainer}>
-          {device && hasPermission ? (
+          {hasPermission ? (
             <Camera
               style={StyleSheet.absoluteFill}
-              device={device}
-              isActive={isActive}
-              torch={torchOn ? 'on' : 'off'}
-              codeScanner={cameraScanningEnabled ? codeScanner : undefined}
+              cameraType={CameraType.Back}
+              torchMode={torchOn ? 'on' : 'off'}
+              scanBarcode
+              onReadCode={handleReadCode}
+              focusMode="on"
             />
           ) : (
             <View style={styles.scannerLoadingContainer}>
@@ -491,12 +503,9 @@ const BackdatedAttendanceScreen: React.FC<Props> = ({ navigation }) => {
             </View>
 
             <View style={styles.scanAreaContainer}>
-              <View style={styles.scanArea}>
-                <View style={[styles.corner, styles.topLeft]} />
-                <View style={[styles.corner, styles.topRight]} />
-                <View style={[styles.corner, styles.bottomLeft]} />
-                <View style={[styles.corner, styles.bottomRight]} />
-              </View>
+              <Text style={styles.scanHintText}>
+                Point the camera at the QR code and hold steady
+              </Text>
             </View>
 
             {processingQR && (
@@ -821,42 +830,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 32,
   },
-  scanArea: {
-    width: 280,
-    height: 280,
-    position: 'relative',
-  },
-  corner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderColor: '#00ff00',
-    borderWidth: 4,
-  },
-  topLeft: {
-    top: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderBottomWidth: 0,
-  },
-  topRight: {
-    top: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderBottomWidth: 0,
-  },
-  bottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderRightWidth: 0,
-    borderTopWidth: 0,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    borderLeftWidth: 0,
-    borderTopWidth: 0,
+  scanHintText: {
+    fontSize: 16,
+    color: '#fff',
+    textAlign: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
   processingContainer: {
     position: 'absolute',

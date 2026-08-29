@@ -117,7 +117,7 @@ const AppNavigator: React.FC = () => {
               component={AddEventScreen}
               options={{
                 headerShown: true,
-                headerTitle: 'Add Event',
+                headerTitle: 'Add Occasion',
                 headerBackTitle: 'Back',
                 headerStyle: {
                   backgroundColor: COLORS.white,

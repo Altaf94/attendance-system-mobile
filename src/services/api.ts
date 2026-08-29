@@ -185,10 +185,17 @@ export const fetchEventsWithId = async (): Promise<EventItem[]> => {
   return apiCall('/api/events?withId=true');
 };
 
-export const createEvent = async (title: string): Promise<{ message: string }> => {
+export interface CreateEventPayload {
+  title: string;
+  category: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+export const createEvent = async (payload: CreateEventPayload): Promise<EventItem> => {
   return apiCall('/api/events', {
     method: 'POST',
-    body: JSON.stringify({ title }),
+    body: JSON.stringify(payload),
   });
 };
 
@@ -282,7 +289,15 @@ export const fetchServices = async (): Promise<ServiceUnitItem[]> => {
 export const fetchServiceRequisition = async (
   id: string
 ): Promise<ServiceRequisition> => {
-  return apiCall(`/api/service-requisitions?id=${encodeURIComponent(id)}`);
+  try {
+    return await apiCall(`/api/service-requisitions/${encodeURIComponent(id)}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const isNotFound = message.includes('404') || /not found/i.test(message);
+    if (!isNotFound) throw error;
+
+    return apiCall(`/api/service-requisitions?id=${encodeURIComponent(id)}`);
+  }
 };
 
 export const fetchServiceRequisitions = async (
@@ -298,6 +313,27 @@ export const saveServiceRequisition = async (
     method: 'POST',
     body: JSON.stringify(data),
   });
+};
+
+export const updateServiceRequisition = async (
+  id: string,
+  data: ServiceRequisitionInput
+): Promise<ServiceRequisition> => {
+  try {
+    return await apiCall(`/api/service-requisitions/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    const isNotFound = message.includes('404') || /not found/i.test(message);
+    if (!isNotFound) throw error;
+
+    return apiCall('/api/service-requisitions', {
+      method: 'PUT',
+      body: JSON.stringify({ ...data, id }),
+    });
+  }
 };
 
 export const approveServiceRequisition = async (

@@ -4,8 +4,9 @@ buildscript {
         minSdkVersion = 24
         compileSdkVersion = 36
         targetSdkVersion = 36
-        ndkVersion = "27.1.12297006"
+        ndkVersion = "28.1.13356709"
         kotlinVersion = "2.1.20"
+        cameraxVersion = "1.4.2"
         REACT_NATIVE_NODE_MODULES_DIR = file("../node_modules/react-native")
     }
     repositories {
@@ -16,6 +17,17 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+    }
+}
+
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force "androidx.camera:camera-core:${rootProject.ext.cameraxVersion}"
+            force "androidx.camera:camera-camera2:${rootProject.ext.cameraxVersion}"
+            force "androidx.camera:camera-lifecycle:${rootProject.ext.cameraxVersion}"
+            force "androidx.camera:camera-view:${rootProject.ext.cameraxVersion}"
+        }
     }
 }
 

@@ -181,6 +181,6 @@ export type RootStackParamList = {
   QRScanner: { event: string; service?: string; serviceUnit?: string };
   UserManagement: undefined;
   BackdatedAttendance: undefined;
-  ServiceRequisition: undefined;
+  ServiceRequisition: { id?: string; requisition?: ServiceRequisition } | undefined;
   ServiceRequisitions: undefined;
 };

@@ -4,18 +4,20 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   ActivityIndicator,
   Alert,
   Modal,
   TextInput,
+  Share,
+  Platform,
 } from 'react-native';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 import { Picker } from '@react-native-picker/picker';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, UserListItem } from '../types';
 import { COLORS, SERVICE_UNIT_OPTIONS, SERVICE_OPTIONS } from '../constants';
 import { fetchUsers, updateUserPassword, deleteUser, updateUserService } from '../services/api';
-import { getUser, isAdmin } from '../utils';
+import { getUser, isAdmin, formatDate, formatLocalDateKey } from '../utils';
 import { ScreenLayout, ScreenHeader, PrimaryButton, Icon } from '../components';
 import { screenStyles } from '../theme/screenStyles';
 
@@ -43,6 +45,7 @@ const UserManagementScreen: React.FC<Props> = ({ navigation }) => {
   const [selectedServiceUnit, setSelectedServiceUnit] = useState('');
   const [selectedService, setSelectedService] = useState('');
   const [savingService, setSavingService] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     checkAdminAccess();
@@ -155,6 +158,77 @@ const UserManagementScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
+  const buildUsersCsv = (userList: UserListItem[]): string => {
+    const headers = ['Name', 'Email', 'Role', 'Status', 'Service Unit', 'Service', 'Created Date'];
+    const rows = userList.map((u) => [
+      u.name || '',
+      u.email,
+      u.role,
+      u.active ? 'Active' : 'Inactive',
+      u.serviceUnit || '',
+      u.service || '',
+      u.createdAt ? formatDate(u.createdAt) : '',
+    ]);
+
+    return [headers, ...rows]
+      .map((row) =>
+        row
+          .map((cell) => {
+            const value = (cell ?? '').toString().replace(/"/g, '""');
+            return `"${value}"`;
+          })
+          .join(',')
+      )
+      .join('\n');
+  };
+
+  const handleExportUsers = async () => {
+    if (!users.length) {
+      Alert.alert('No Data', 'There are no users to export.');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const csvContent = buildUsersCsv(users);
+      const fileName = `users_export_${formatLocalDateKey(new Date())}.csv`;
+
+      if (Platform.OS === 'android') {
+        const dir = ReactNativeBlobUtil.fs.dirs.DownloadDir || ReactNativeBlobUtil.fs.dirs.DocumentDir;
+        const filePath = `${dir}/${fileName}`;
+        await ReactNativeBlobUtil.fs.writeFile(filePath, csvContent, 'utf8');
+        await ReactNativeBlobUtil.android.addCompleteDownload({
+          title: fileName,
+          description: 'User list export',
+          mime: 'text/csv',
+          path: filePath,
+          showNotification: true,
+        });
+        Alert.alert('Success', `Users list saved to Downloads as ${fileName}`);
+      } else {
+        const dir = ReactNativeBlobUtil.fs.dirs.DocumentDir;
+        const filePath = `${dir}/${fileName}`;
+        await ReactNativeBlobUtil.fs.writeFile(filePath, csvContent, 'utf8');
+        await Share.share({
+          url: `file://${filePath}`,
+          title: 'Users Export',
+        });
+      }
+    } catch {
+      try {
+        const csvContent = buildUsersCsv(users);
+        await Share.share({
+          title: 'Users Export',
+          message: csvContent,
+        });
+      } catch {
+        Alert.alert('Error', 'Failed to export users list.');
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const activeUsers = users.filter(u => u.active).length;
   const inactiveUsers = users.filter(u => !u.active).length;
 
@@ -203,12 +277,21 @@ const UserManagementScreen: React.FC<Props> = ({ navigation }) => {
           </View>
 
           {/* Action Buttons */}
-          <PrimaryButton
-            title="Register User"
-            icon="person-add-outline"
-            onPress={() => navigation.navigate('RegisterUser')}
-            style={{ marginBottom: 16 }}
-          />
+          <View style={styles.actionsColumn}>
+            <PrimaryButton
+              title="Register User"
+              icon="person-add-outline"
+              onPress={() => navigation.navigate('RegisterUser')}
+            />
+            <PrimaryButton
+              title="Export CSV"
+              icon="download-outline"
+              variant="secondary"
+              onPress={handleExportUsers}
+              loading={exporting}
+              disabled={exporting || users.length === 0}
+            />
+          </View>
 
           {loading ? (
             <View style={styles.loadingSection}>
@@ -557,8 +640,9 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
   },
-  actionsRow: {
-    marginBottom: 20,
+  actionsColumn: {
+    gap: 12,
+    marginBottom: 16,
   },
   registerButton: {
     backgroundColor: '#3498db',

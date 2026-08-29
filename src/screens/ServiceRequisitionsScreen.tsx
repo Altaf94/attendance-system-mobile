@@ -1,5 +1,5 @@
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -39,13 +39,37 @@ const formatDate = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 };
 
+type FilterStatus = 'SUBMITTED' | 'APPROVED';
+
+const createEmptyCache = (): Record<FilterStatus, ServiceRequisition[]> => ({
+  SUBMITTED: [],
+  APPROVED: [],
+});
+
+const normalizeCache = (
+  cache: Partial<Record<FilterStatus, ServiceRequisition[]>> | undefined
+): Record<FilterStatus, ServiceRequisition[]> => ({
+  SUBMITTED: Array.isArray(cache?.SUBMITTED) ? cache.SUBMITTED : [],
+  APPROVED: Array.isArray(cache?.APPROVED) ? cache.APPROVED : [],
+});
+
 const ServiceRequisitionsScreen: React.FC<Props> = ({ navigation }) => {
-  const [requests, setRequests] = useState<ServiceRequisition[]>([]);
+  const [requestsByFilter, setRequestsByFilter] = useState(createEmptyCache);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadingFilter, setLoadingFilter] = useState<FilterStatus | null>('SUBMITTED');
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState<'SUBMITTED' | 'APPROVED'>('SUBMITTED');
+  const [filter, setFilter] = useState<FilterStatus>('SUBMITTED');
+  const hasLoadedOnceRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const filterRef = useRef<FilterStatus>('SUBMITTED');
+  const cacheRef = useRef(requestsByFilter);
+
+  filterRef.current = filter;
+  cacheRef.current = requestsByFilter;
+
+  const requests = requestsByFilter[filter] ?? [];
+  const loading = loadingFilter === filter;
 
   const selected = useMemo(
     () => requests.find(request => request.id === selectedId) || requests[0] || null,
@@ -57,35 +81,62 @@ const ServiceRequisitionsScreen: React.FC<Props> = ({ navigation }) => {
     return Object.entries(selected.serviceVolunteers).filter(([, value]) => String(value || '').trim());
   }, [selected]);
 
-  const loadRequests = useCallback(async (status: 'SUBMITTED' | 'APPROVED' = filter, asRefresh = false) => {
-    if (asRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError('');
-    try {
-      const data = await fetchServiceRequisitions(status);
-      setRequests(Array.isArray(data) ? data : []);
-      setSelectedId(Array.isArray(data) && data[0]?.id ? data[0].id : null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load service requisitions.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [filter]);
+  const loadRequests = useCallback(
+    async (status: FilterStatus, mode: 'initial' | 'refresh' | 'silent' = 'initial') => {
+      const requestId = ++requestIdRef.current;
+      const cachedList = cacheRef.current[status] ?? [];
+      const hasCachedData = cachedList.length > 0;
+
+      if (mode === 'refresh') {
+        setRefreshing(true);
+      } else if (mode === 'initial' && !hasCachedData) {
+        setLoadingFilter(status);
+      }
+
+      setError('');
+      try {
+        const data = await fetchServiceRequisitions(status);
+        if (requestId !== requestIdRef.current) return;
+
+        const list = Array.isArray(data) ? data : [];
+        setRequestsByFilter(prev => {
+          const next = normalizeCache({ ...prev, [status]: list });
+          cacheRef.current = next;
+          return next;
+        });
+
+        if (status === filterRef.current) {
+          setSelectedId(prev => {
+            if (prev && list.some(item => item.id === prev)) return prev;
+            return list[0]?.id ?? null;
+          });
+        }
+      } catch (err) {
+        if (requestId !== requestIdRef.current) return;
+        setError(err instanceof Error ? err.message : 'Failed to load service requisitions.');
+      } finally {
+        if (requestId !== requestIdRef.current) return;
+        setLoadingFilter(prev => (prev === status ? null : prev));
+        setRefreshing(false);
+        hasLoadedOnceRef.current = true;
+      }
+    },
+    []
+  );
 
   useFocusEffect(
     useCallback(() => {
-      loadRequests(filter);
-    }, [loadRequests, filter])
+      const currentFilter = filterRef.current;
+      loadRequests(currentFilter, hasLoadedOnceRef.current ? 'silent' : 'initial');
+    }, [loadRequests])
   );
 
-  const handleFilterChange = (newFilter: 'SUBMITTED' | 'APPROVED') => {
+  const handleFilterChange = (newFilter: FilterStatus) => {
     if (newFilter === filter) return;
     setFilter(newFilter);
-    loadRequests(newFilter);
+    filterRef.current = newFilter;
+    const hasCachedData = (cacheRef.current[newFilter] ?? []).length > 0;
+    loadRequests(newFilter, hasCachedData ? 'silent' : 'initial');
   };
 
   const [downloading, setDownloading] = useState(false);
@@ -98,7 +149,17 @@ const ServiceRequisitionsScreen: React.FC<Props> = ({ navigation }) => {
     try {
       const user = await getUser();
       await approveServiceRequisition(selected.id, user?.name || user?.email || 'Admin');
-      setRequests(prev => prev.map(r => r.id === selected.id ? { ...r, status: 'APPROVED' } : r));
+      setRequestsByFilter(prev => {
+        const current = prev[filter] ?? [];
+        const next = normalizeCache({
+          ...prev,
+          [filter]: current.map(r =>
+            r.id === selected.id ? { ...r, status: 'APPROVED' as const } : r
+          ),
+        });
+        cacheRef.current = next;
+        return next;
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to approve requisition.';
       console.log('Approve failed:', message);
@@ -321,7 +382,7 @@ const ServiceRequisitionsScreen: React.FC<Props> = ({ navigation }) => {
   return (
     <ScreenLayout
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadRequests(filter, true)} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadRequests(filter, 'refresh')} />}
     >
       <View style={[screenStyles.card, { borderRadius: 10, padding: 12 }]}>
         <ScreenHeader
@@ -357,7 +418,7 @@ const ServiceRequisitionsScreen: React.FC<Props> = ({ navigation }) => {
         ) : error ? (
           <View style={styles.center}>
             <Text style={styles.error}>{error}</Text>
-            <PrimaryButton title="Retry" onPress={() => loadRequests()} />
+            <PrimaryButton title="Retry" onPress={() => loadRequests(filter, 'initial')} />
           </View>
         ) : requests.length === 0 ? (
           <View style={styles.center}>
@@ -528,6 +589,17 @@ const ServiceRequisitionsScreen: React.FC<Props> = ({ navigation }) => {
                 </View>
 
                 <View style={styles.actionButtons}>
+                  {selected.status !== 'APPROVED' ? (
+                    <PrimaryButton
+                      title="Edit"
+                      onPress={() =>
+                        navigation.navigate('ServiceRequisition', {
+                          id: selected.id,
+                          requisition: selected,
+                        })
+                      }
+                    />
+                  ) : null}
                   {filter === 'SUBMITTED' && (
                     <PrimaryButton
                       title={selected.status === 'APPROVED' ? 'Approved ✓' : 'Approve'}

@@ -26,6 +26,7 @@ const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({
           logoBackgroundColor="white"
           logoBorderRadius={8}
           quietZone={10}
+          ecl="H"
         />
       </View>
     </View>
@@ -34,11 +35,13 @@ const QRCodeDisplay: React.FC<QRCodeDisplayProps> = ({
 
 const styles = StyleSheet.create({
   container: {
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
   },
   qrContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 16,
     backgroundColor: COLORS.white,
     borderRadius: 12,
